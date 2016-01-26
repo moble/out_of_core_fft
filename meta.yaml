@@ -1,0 +1,24 @@
+package:
+  name: out_of_core_fft
+  version: '1.0'
+
+source:
+  git_url: https://github.com/moble/out_of_core_fft.git
+
+build:
+  detect_binary_files_with_prefix: true
+  script: python setup.py install
+
+requirements:
+  build:
+    - python
+
+  run:
+    - python
+    - numpy
+    - h5py
+
+about:
+  home: 'https://github.com/moble/out_of_core_fft'
+  license: MIT
+  summary: 'Perform FFT on data set that does not fit into memory'
