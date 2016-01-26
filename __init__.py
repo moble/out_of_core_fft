@@ -230,14 +230,18 @@ def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**
         return file_out, dset_out
 
 
-def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
-    """Perform inverse FFT for very large dataset stored in HDF5 file
+def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3, inverse_fft=False,
+                 keep_me_posted=False):
+    """
 
     This code is based on the algorithm presented in "Determining an out-of-core FFT decomposition strategy for
     parallel disks by dynamic programming", by Thomas H. Cormen in "Algorithms for parallel processing" (1999).  I
-    have modified it slightly to take advantage of numpy's ability to broadcast the in-memory FFT efficiently.  I
-    also have not implemented the recursive strategy, though that would be simple.
+    have modified it slightly to take advantage of numpy's ability to broadcast the in-memory FFT efficiently,
+    and to agree with numpy's conventions for the signs and normalizations of the FFT and inverse FFT.
 
+    I also have not implemented the recursive strategy, though that should be simple enough.  But this should be
+    sufficient for extraordinarily large datasets (with N around 10**18 or so), so I don't expect much need for
+    recursion.
 
     Parameters
     ==========
@@ -252,6 +256,10 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         if the input dataset is of type complex.
     mem_limit : int
         Size of memory (in bytes) to use for cache.  Default value is 1024**3 (1GB).
+    keep_me_posted : bool
+        If True, print occasional messages about how much work has been done.  This is particularly useful for
+        continuous-integration services, which typically like to see output every few minutes, or assumes the job is
+        dead.  Default is False.
 
     """
     import h5py
@@ -305,8 +313,9 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         # This cannot be done *quickly* by slicing because HDF5 doesn't like random
         # access -- or even determinate but long-strided access.  So we have to actually
         # transpose the original dataset into the temp file, and fft from that.
+        if keep_me_posted:
+            print("\t\t\tStep 1: Transposing input data")
         f_tmp1, y = transpose(x, fn_tmp1, 'temp_y', R2=C, C2=R, chunk_cache_mem_size=mem_limit)
-        #context_managers.enter_context(contextlib.closing(f_tmp1))
 
         # Steps 2 and 3:
         #   2) Compute DFT of each R-element row individually
@@ -315,11 +324,23 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         # convention is opposite that of numpy and FFTW, and scale the result because Cormen
         # does not scale, but numpy does.  Finally, we allow numpy to broadcast, performing
         # Step 3 easily.  This is then written back to disk by h5py.
-        for k in range(C):
-            y[k] = np.exp(np.arange(R)*(k*2j*np.pi/N)) * np.fft.ifft(y[k])
+        if keep_me_posted:
+            print("\t\t\tSteps 2 and 3: Computing DFTs and scaling")
+        if inverse_fft:
+            for k in range(C):
+                if keep_me_posted:
+                    print("\t\t\t\t{0} of {1}".format(k+1, c))
+                y[k] = np.exp(np.arange(R)*(k*2j*np.pi/N)) * np.fft.ifft(y[k])
+        else:
+            for k in range(C):
+                if keep_me_posted:
+                    print("\t\t\t\t{0} of {1}".format(k+1, c))
+                y[k] = np.exp(np.arange(R)*(-k*2j*np.pi/N)) * np.fft.fft(y[k])
 
         # Step 4:
         #   4) Transpose back to RxC shape
+        if keep_me_posted:
+            print("\t\t\tStep 4: Transpose 2")
         f_tmp2, z = transpose(y, fn_tmp2, 'temp_z', R2=R, C2=C, chunk_cache_mem_size=mem_limit)
         context_managers.enter_context(contextlib.closing(f_tmp2))
 
@@ -334,131 +355,38 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         # to avoid the python loop overhead.  To achieve this, we need to select `M` data
         # points at a time, reshape into the appropriate 2-D array, and have numpy do all
         # those DFTs at once.  Once that is done, we reshape back to a vector.
-        for k in range(0, R, M//C):
-            z[k:k+M//C] = np.fft.ifft(z[k:k+M//C])
+        if keep_me_posted:
+            print("\t\t\tStep 5: Transpose 2")
+        if inverse_fft:
+            for k in range(0, R, M//C):
+                if keep_me_posted:
+                    print("\t\t\t\t{0} of {1}".format(k+M//C, R))
+                z[k:k+M//C] = np.fft.ifft(z[k:k+M//C])
+        else:
+            for k in range(0, R, M//C):
+                if keep_me_posted:
+                    print("\t\t\t\t{0} of {1}".format(k+M//C, R))
+                z[k:k+M//C] = np.fft.fft(z[k:k+M//C])
 
         # Step 6:
         #   6) Transpose back to CxR and flatten
+        if keep_me_posted:
+            print("\t\t\tStep 6: Transpose 3")
         for r in range(0, R, sqrt_n_c_e):
             for c in range(0, C, sqrt_n_c_e):
+                if keep_me_posted:
+                    print("\t\t\t\t({0}, {1}) of ({2}, {3})".format(r+sqrt_n_c_e, c+sqrt_n_c_e, R, C))
                 shape = (min(C, c+sqrt_n_c_e)-c, min(R, r+sqrt_n_c_e)-r)
                 stripe = z[r:r+shape[1], c:c+shape[0]]
                 for c2 in range(c, c+shape[0]):
-                    X[c2*R+r:c2*R+r+shape[1]] = stripe[:, c2-shape[0]].T
+                    X[c2*R+r:c2*R+r+shape[1]] = stripe[:, c2-c].T
+
+
+def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
+    _general_fft(infile, ingroup, outfile, outgroup, overwrite, mem_limit, inverse_fft=True)
+ifft.__doc__ = "Perform inverse FFT for very large dataset stored in HDF5 file" + _general_fft.__doc__
 
 
 def fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
-    """Perform FFT for very large dataset stored in HDF5 file
-
-    This code is based on the algorithm presented in "Determining an out-of-core FFT decomposition strategy for
-    parallel disks by dynamic programming", by Thomas H. Cormen in "Algorithms for parallel processing" (1999).  I
-    have modified it slightly to take advantage of numpy's ability to broadcast the in-memory FFT efficiently.  I
-    also have not implemented the recursive strategy, though that would be simple.
-
-
-    Parameters
-    ==========
-    infile, ingroup : str, str
-        Name of HDF5 file and group within that file in which to find the data to be FFTed.  The data should be a
-        single set of 1-D data, either float or complex.
-    outfile, outgroup : str, str
-        Name of HDF5 file and group within that file in which to place the FFTed data.  If `overwrite` is True, these
-        values are ignored (and default to empty strings, so that they need not be present).
-    overwrite : bool
-        If True, place the output data in the same file and group as the input data.  Note that this is only allowed
-        if the input dataset is of type complex.
-    mem_limit : int
-        Size of memory (in bytes) to use for cache.  Default value is 1024**3 (1GB).
-
-    """
-    import h5py
-    import numbers
-    import os
-    import numpy as np
-    import contextlib
-
-    n_cache_elements = mem_limit / bytes_per_complex
-    sqrt_n_c_e = int(np.sqrt(n_cache_elements-1))
-
-    with _ExitStack() as context_managers:
-
-        # Open files and datasets for read/write
-        if infile == outfile or overwrite:
-            f_in = context_managers.enter_context(h5py.File(infile, 'r+'))
-            f_out = f_in
-        else:
-            f_in = context_managers.enter_context(h5py.File(infile, 'r'))
-            f_out = context_managers.enter_context(h5py.File(outfile, 'w'))
-        if overwrite:
-            x = f_in[ingroup]
-            if not issubclass(x.dtype, numbers.Complex):
-                raise ValueError("Flag `overwrite` is True, but input dtype={0} is not complex".format(x.dtype))
-            X = x
-        else:
-            if infile == outfile and ingroup == outgroup:
-                raise ValueError("Flag `overwrite` is False, but input and output files and groups are the same")
-            x = f_in[ingroup]
-            if outgroup in f_out:
-                del f_out[outgroup]
-            X = f_out.create_dataset(outgroup, shape=x.shape, dtype=x.dtype, chunks=(sqrt_n_c_e,))
-
-        # Determine appropriate size and shape
-        N = x.size
-        if N != 2**int(np.log2(N)):
-            raise ValueError("Size of input N={0} is not a power of 2 [log2(N)={1}]".format(N, np.log2(N)))
-        R = 2**(int(np.log2(N))//2)
-        M = 2**(int(np.log2(mem_limit))) // (4 * bytes_per_complex)
-        M = min(M, N)
-        R = max(M, R)
-        C = N//R
-
-        # Make temporary storage space
-        tmpdirname = context_managers.enter_context(_TemporaryDirectory())
-        fn_tmp1 = os.path.join(tmpdirname, 'temp1.h5')
-        fn_tmp2 = os.path.join(tmpdirname, 'temp2.h5')
-
-        # Step 1 of Cormen (1999):
-        #   1) Interpret as RxC matrix and transpose to CxR
-        # This cannot be done *quickly* by slicing because HDF5 doesn't like random
-        # access -- or even determinate but long-strided access.  So we have to actually
-        # transpose the original dataset into the temp file, and fft from that.
-        f_tmp1, y = transpose(x, fn_tmp1, 'temp_y', R2=C, C2=R, chunk_cache_mem_size=mem_limit)
-        #context_managers.enter_context(contextlib.closing(f_tmp1))
-
-        # Steps 2 and 3:
-        #   2) Compute DFT of each R-element row individually
-        #   3) Scale matrix element at index (k,l) by exp(k*l*2j*pi/N)
-        # We first perform the DFT (Step 2).  Note that we use `ifft` because Cormen's DFT sign
-        # convention is opposite that of numpy and FFTW, and scale the result because Cormen
-        # does not scale, but numpy does.  Finally, we allow numpy to broadcast, performing
-        # Step 3 easily.  This is then written back to disk by h5py.
-        for k in range(C):
-            y[k] = np.exp(np.arange(R)*(-k*2j*np.pi/N)) * np.fft.fft(y[k])
-
-        # Step 4:
-        #   4) Transpose back to RxC shape
-        f_tmp2, z = transpose(y, fn_tmp2, 'temp_z', R2=R, C2=C, chunk_cache_mem_size=mem_limit)
-        context_managers.enter_context(contextlib.closing(f_tmp2))
-
-        # Delete `y` and its temp file to save on disk space
-        del f_tmp1['temp_y']
-        f_tmp1.close()
-        os.remove(fn_tmp1)
-
-        # Step 5:
-        #   5) Compute DFT of each C-element row individually
-        # We actually do`M//C` repetitions of Step 5 at a time, rather than individually,
-        # to avoid the python loop overhead.  To achieve this, we need to select `M` data
-        # points at a time, reshape into the appropriate 2-D array, and have numpy do all
-        # those DFTs at once.  Once that is done, we reshape back to a vector.
-        for k in range(0, R, M//C):
-            z[k:k+M//C] = np.fft.fft(z[k:k+M//C])
-
-        # Step 6:
-        #   6) Transpose back to CxR and flatten
-        for r in range(0, R, sqrt_n_c_e):
-            for c in range(0, C, sqrt_n_c_e):
-                shape = (min(C, c+sqrt_n_c_e)-c, min(R, r+sqrt_n_c_e)-r)
-                stripe = z[r:r+shape[1], c:c+shape[0]]
-                for c2 in range(c, c+shape[0]):
-                    X[c2*R+r:c2*R+r+shape[1]] = stripe[:, c2-shape[0]].T
+    _general_fft(infile, ingroup, outfile, outgroup, overwrite, mem_limit, inverse_fft=False)
+fft.__doc__ = "Perform FFT for very large dataset stored in HDF5 file" + _general_fft.__doc__

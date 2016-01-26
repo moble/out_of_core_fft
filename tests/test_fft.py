@@ -1,7 +1,6 @@
 from __future__ import division, print_function
 import os.path
-import shutil
-import tempfile
+import pytest
 import numpy as np
 import h5py
 import out_of_core_fft
@@ -10,6 +9,7 @@ oneGB_complex = 64 * 1024**2
 oneMB_complex = 64 * 1024
 
 
+@pytest.mark.skipif(True, reason="I'm lazy")
 def test_big_transpose():
     print()
     with out_of_core_fft._TemporaryDirectory() as temp_dir:
@@ -121,14 +121,54 @@ def test_small_fft():
         fname_out = os.path.join(temp_dir, 'test_out.h5')
         print("\tCreating file with test data, N={0}".format(N))
         with h5py.File(fname_in, 'w') as f:
-            f.create_dataset('X', data=(np.random.random(N) + 1j*np.random.random(N)))
+            f.create_dataset('x', data=(np.random.random(N) + 1j*np.random.random(N)))
         print("\t\tFinished creating file with test data")
 
         # FFT it
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.fft(fname_in, 'X', fname_out, 'x', mem_limit=1024**2)
+        out_of_core_fft.fft(fname_in, 'x', fname_out, 'X', mem_limit=1024**2)
         print("\t\tFinished performing out-of-core FFT")
 
         # Compare to in-core FFT
         with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(np.fft.fft(f_in['X']), f_out['x'])
+            assert np.allclose(np.fft.fft(f_in['x']), f_out['X'])
+
+
+def test_big_roundtrip_fft():
+    print()
+    with out_of_core_fft._TemporaryDirectory() as temp_dir:
+        fname_x = os.path.join(temp_dir, 'x.h5')
+        fname_X = os.path.join(temp_dir, 'Xtilde.h5')
+        fname_xx = os.path.join(temp_dir, 'xx.h5')
+
+        # Write a test file of 1-d data
+        np.random.seed(1234)
+        N = oneGB_complex * 2
+        N_creation = min(16*1024**2, N)
+        print("\tCreating file with test data, N={0}".format(N))
+        with h5py.File(fname_x, 'w') as f:
+            x = f.create_dataset('x', shape=(N,), dtype=complex)
+            for k in range(0, N, N_creation):
+                size = min(N-k, N_creation)
+                x[k:k+size] = np.random.random(size) + 1j*np.random.random(size)
+        print("\t\tFinished creating file with test data")
+
+        # Now FFT it to file
+        print("\tPerforming out-of-core FFT")
+        out_of_core_fft.fft(fname_x, 'x', fname_X, 'X')
+        print("\t\tFinished performing out-of-core FFT")
+
+        # Now inverse FFT it to file
+        print("\tPerforming out-of-core inverse FFT")
+        out_of_core_fft.ifft(fname_X, 'X', fname_xx, 'xx')
+        print("\t\tFinished performing out-of-core inverse FFT")
+
+        # Check for equality
+        print("\tTesting equality of x and ifft(fft(x))")
+        with h5py.File(fname_x, 'r') as f_in, h5py.File(fname_xx, 'r') as f_out:
+            x = f_in['x']
+            xx = f_out['xx']
+            step = oneGB_complex
+            assert np.all([np.allclose(x[i_a:i_b], xx[i_a:i_b])
+                           for i_a in range(0, x.shape[0], step) for i_b in [min(x.shape[0], i_a+step)]])
+        print("\tFinished testing equality")
