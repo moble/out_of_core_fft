@@ -103,12 +103,12 @@ def test_small_ifft():
 
         # FFT it
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.ifft(fname_in, 'X', fname_out, 'x')
+        out_of_core_fft.ifft(fname_in, 'X', fname_out, 'x', mem_limit=1024**2)
         print("\t\tFinished performing out-of-core FFT")
 
         # Compare to in-core FFT
         with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(np.fft.ifft(f_in['X']), f_out['x'])
+            assert np.allclose(f_in['X'].shape[0]*np.fft.ifft(f_in['X']), f_out['x'])
 
 
 def test_small_fft():
@@ -126,7 +126,7 @@ def test_small_fft():
 
         # FFT it
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.fft(fname_in, 'x', fname_out, 'X')
+        out_of_core_fft.fft(fname_in, 'x', fname_out, 'X', mem_limit=1024**2)
         print("\t\tFinished performing out-of-core FFT")
 
         # Compare to in-core FFT

@@ -259,6 +259,7 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
     import numbers
     import os
     import numpy as np
+    import contextlib
 
     n_cache_elements = mem_limit / bytes_per_complex
     sqrt_n_c_e = int(np.sqrt(n_cache_elements-1))
@@ -299,22 +300,14 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         tmpdirname = context_managers.enter_context(_TemporaryDirectory())
         fn_tmp1 = os.path.join(tmpdirname, 'temp1.h5')
         fn_tmp2 = os.path.join(tmpdirname, 'temp2.h5')
-        f_tmp1 = context_managers.enter_context(h5py_cache.File(fn_tmp1, chunk_cache_mem_size=mem_limit, w0=1.0))
-        f_tmp2 = context_managers.enter_context(h5py_cache.File(fn_tmp2, chunk_cache_mem_size=mem_limit, w0=1.0))
-        y_chunk = min(sqrt_n_c_e, R)
-        y = f_tmp1.create_dataset('temp_y', shape=(C, R), dtype=x.dtype, chunks=(max(1, sqrt_n_c_e//y_chunk), y_chunk))
-        z_chunk = min(sqrt_n_c_e, C)
-        z = f_tmp2.create_dataset('temp_z', shape=(R, C), dtype=x.dtype, chunks=(max(1, sqrt_n_c_e//z_chunk), z_chunk))
 
         # Step 1 of Cormen (1999):
         #   1) Interpret as RxC matrix and transpose to CxR
         # This cannot be done *quickly* by slicing because HDF5 doesn't like random
         # access -- or even determinate but long-strided access.  So we have to actually
         # transpose the original dataset into the temp file, and fft from that.
-        for r in range(0, R, sqrt_n_c_e):
-            for c in range(0, C, sqrt_n_c_e):
-                shape = (min(C, c+sqrt_n_c_e)-c, min(R, r+sqrt_n_c_e)-r)
-                y[c:c+shape[0], r:r+shape[1]] = x[c*R+r:c*R+r+shape[0]*shape[1]].reshape(shape)
+        f_tmp1, y = transpose(x, fn_tmp1, 'temp_y', R2=C, C2=R, chunk_cache_mem_size=mem_limit)
+        #context_managers.enter_context(contextlib.closing(f_tmp1))
 
         # Steps 2 and 3:
         #   2) Compute DFT of each R-element row individually
@@ -328,10 +321,8 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
 
         # Step 4:
         #   4) Transpose back to RxC shape
-        for c in range(0, C, sqrt_n_c_e):
-            for r in range(0, R, sqrt_n_c_e):
-                shape = (min(R, r+sqrt_n_c_e)-r, min(C, c+sqrt_n_c_e)-c)
-                z[r:r+shape[0], c:c+shape[1]] = y[c:c+shape[1], r:r+shape[0]].T
+        f_tmp2, z = transpose(y, fn_tmp2, 'temp_z', R2=R, C2=C, chunk_cache_mem_size=mem_limit)
+        #context_managers.enter_context(contextlib.closing(f_tmp2))
 
         # Delete `y` and its temp file to save on disk space
         del f_tmp1['temp_y']
@@ -345,7 +336,7 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
         # points at a time, reshape into the appropriate 2-D array, and have numpy do all
         # those DFTs at once.  Once that is done, we reshape back to a vector.
         for k in range(0, R, M//C):
-            z[k:k+M//C] = (C/N) * np.fft.ifft(z[k:k+M//C])
+            z[k:k+M//C] = C * np.fft.ifft(z[k:k+M//C])
 
         # Step 6:
         #   6) Transpose back to CxR and flatten
@@ -355,6 +346,10 @@ def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=10
                 stripe = z[r:r+shape[1], c:c+shape[0]]
                 for c2 in range(c, c+shape[0]):
                     X[c2*R+r:c2*R+r+shape[1]] = stripe[:, c2-shape[0]].T
+
+        del f_tmp2['temp_z']
+        f_tmp2.close()
+        os.remove(fn_tmp2)
 
 
 def fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
