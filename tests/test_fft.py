@@ -108,7 +108,7 @@ def test_small_ifft():
 
         # Compare to in-core FFT
         with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(f_in['X'].shape[0]*np.fft.ifft(f_in['X']), f_out['x'])
+            assert np.allclose(np.fft.ifft(f_in['X']), f_out['x'])
 
 
 def test_small_fft():
@@ -121,17 +121,14 @@ def test_small_fft():
         fname_out = os.path.join(temp_dir, 'test_out.h5')
         print("\tCreating file with test data, N={0}".format(N))
         with h5py.File(fname_in, 'w') as f:
-            f.create_dataset('x', data=(np.random.random(N) + 1j*np.random.random(N)))
+            f.create_dataset('X', data=(np.random.random(N) + 1j*np.random.random(N)))
         print("\t\tFinished creating file with test data")
 
         # FFT it
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.fft(fname_in, 'x', fname_out, 'X', mem_limit=1024**2)
+        out_of_core_fft.fft(fname_in, 'X', fname_out, 'x', mem_limit=1024**2)
         print("\t\tFinished performing out-of-core FFT")
 
         # Compare to in-core FFT
         with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(np.fft.fft(f_in['x']), f_out['X'])
-
-
-
+            assert np.allclose(np.fft.fft(f_in['X']), f_out['x'])
