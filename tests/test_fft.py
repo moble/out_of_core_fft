@@ -13,7 +13,7 @@ oneMB_complex = 64 * 1024
     oneMB_complex * 2,
     oneGB_complex * 2,
 ])
-def test_big_transpose(N):
+def test_transpose(N):
     print()
     with out_of_core_fft._TemporaryDirectory() as temp_dir:
         # Write a test file of 1-d data to be reinterpreted as 2-d and transposed
@@ -52,51 +52,11 @@ def test_big_transpose(N):
         print("\t\tFinished performing second transpose")
 
 
-def test_small_transpose():
-    """This should do the same as above, but with a smaller data set.  By setting the cache size even smaller, I still
-    test the actual on-disk transpose function.  As much as anything, this is here to provide a template for other
-    tests.
-    """
-    print()
-    with out_of_core_fft._TemporaryDirectory() as temp_dir:
-        # Write a test file of 1-d data to be reinterpreted as 2-d and transposed
-        np.random.seed(1234)
-        N = oneMB_complex * 2
-        print("\tCreating file with test data, N={0}".format(N))
-        with h5py.File(os.path.join(temp_dir, 'test_in.h5'), 'w') as f:
-            f.create_dataset('x', data=(np.random.random(N) + 1j*np.random.random(N)))
-        print("\t\tFinished creating file with test data")
-
-        # Now transpose it to file
-        print("\tPerforming first transpose")
-        with h5py.File(os.path.join(temp_dir, 'test_in.h5'), 'r') as f:
-            x = f['x']
-            R2, C2 = N//32, 32
-            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose.h5'), 'x', R2=R2, C2=C2,
-                                              chunk_cache_mem_size=N//2)
-            f2.close()
-        print("\t\tFinished performing first transpose")
-
-        # Transpose it back, and check for equality
-        print("\tPerforming second transpose")
-        with h5py.File(os.path.join(temp_dir, 'test_transpose.h5'), 'r') as f:
-            x = f['x']
-            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose2.h5'), 'x',
-                                              chunk_cache_mem_size=N//2)
-            try:
-                assert np.all([np.array_equal(x[c2a:c2b, r2a:r2b].T, d[r2a:r2b, c2a:c2b])
-                               for r2a in range(0, R2, min(R2, C2)) for r2b in [min(R2, r2a+min(R2, C2))]
-                               for c2a in range(0, C2, min(R2, C2)) for c2b in []])
-            finally:
-                f2.close()
-        print("\t\tFinished performing second transpose")
-
-
 @pytest.mark.parametrize("myfunc, npfunc", [
     (out_of_core_fft.ifft, np.fft.ifft),
     (out_of_core_fft.fft, np.fft.fft),
 ])
-def test_small_dft(myfunc, npfunc):
+def test_dft(myfunc, npfunc):
     print()
     with out_of_core_fft._TemporaryDirectory() as temp_dir:
         # Write a test file
