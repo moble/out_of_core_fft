@@ -385,7 +385,7 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         i = 0
         for r in range(0, R, sqrt_n_c_e):
             for c in range(0, C, sqrt_n_c_e):
-                if show_progress and i % max(N//1000, 25) == 1:
+                if show_progress:
                     print("\t\t\t({0}, {1}) of ({2}, {3})".format(r+sqrt_n_c_e, c+sqrt_n_c_e, R, C))
                 shape = (min(C, c+sqrt_n_c_e)-c, min(R, r+sqrt_n_c_e)-r)
                 stripe = z[r:r+shape[1], c:c+shape[0]]
