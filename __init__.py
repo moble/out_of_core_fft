@@ -32,10 +32,9 @@ try:
     from contextlib import ExitStack as _ExitStack
 except ImportError:
     class _ExitStack(object):
-        from collections import deque
-        import sys
 
         def __init__(self):
+            from collections import deque
             self._exit_callbacks = deque()
 
         def _push_cm_exit(self, cm, cm_exit):
@@ -68,6 +67,8 @@ except ImportError:
             return self
 
         def __exit__(self, *exc_details):
+            import sys
+
             received_exc = exc_details[0] is not None
 
             frame_exc = sys.exc_info()[1]
@@ -336,12 +337,12 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
             print("\t\tSteps 2 and 3: Computing DFTs and scaling")
         if inverse_fft:
             for k in range(C):
-                if show_progress and k % max(C//100, 25) == 1:
+                if show_progress and k % max(C//50, 25) == 1:
                     print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(k*2j*np.pi/N)) * np.fft.ifft(y[k])
         else:
             for k in range(C):
-                if show_progress and k % max(C//100, 25) == 1:
+                if show_progress and k % max(C//50, 25) == 1:
                     print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(-k*2j*np.pi/N)) * np.fft.fft(y[k])
 
