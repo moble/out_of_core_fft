@@ -106,7 +106,7 @@ except ImportError:
 
 
 def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**3, w0=1.0,
-              R2=None, C2=None, close_file_when_done=False, access_axis=1):
+              R2=None, C2=None, close_file_when_done=False, access_axis=1, show_progress=False):
     """Transpose large matrix in HDF5 for fast access on transposed row
 
     Assuming the input dataset is chunked along its column (second) index, this function
@@ -151,6 +151,9 @@ def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**
         Axis along which the output array will be accessed.  Default is 1, meaning the second
         (column) index.  Anything else will be interpreted as 0.
 
+    show_progress : bool
+        Periodically show progress through the main loop.  Defaults to False.
+
 
     """
     import numpy as np
@@ -175,7 +178,7 @@ def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**
 
     # If the transposition can be done in memory, just do it
     if dset_in.size <= num_chunk_elements:
-        print("Doing transpose in memory")
+        # print("Doing transpose in memory")
         file_out = h5py.File(file_name_out, 'a')
         if dset_name_out in file_out:
             del file_out[dset_name_out]
@@ -217,11 +220,15 @@ def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**
                 return dset_in[c2a:c2b, r2a:r2b]
 
         # Do the transposition
+        i = 1
         for c2a in range(0, C2, chunk_size):
             for r2a in range(0, R2, n_cache_chunks):
+                if show_progress:
+                    print("\t\t\t{0} of {1}".format(i, int(np.ceil(C2 / chunk_size) * np.ceil(R2 / n_cache_chunks))))
                 c2b = min(C2, c2a+chunk_size)
                 r2b = min(R2, r2a+n_cache_chunks)
                 dset_out[r2a:r2b, c2a:c2b] = submatrix_dset_in(r2a, r2b, c2a, c2b).T
+                i += 1
 
     if close_file_when_done:
         file_out.close()
@@ -231,7 +238,7 @@ def transpose(dset_in, file_name_out, dset_name_out, chunk_cache_mem_size=1024**
 
 
 def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3, inverse_fft=False,
-                 keep_me_posted=False):
+                 show_progress=False):
     """
 
     This code is based on the algorithm presented in "Determining an out-of-core FFT decomposition strategy for
@@ -256,7 +263,7 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         if the input dataset is of type complex.
     mem_limit : int
         Size of memory (in bytes) to use for cache.  Default value is 1024**3 (1GB).
-    keep_me_posted : bool
+    show_progress : bool
         If True, print occasional messages about how much work has been done.  This is particularly useful for
         continuous-integration services, which typically like to see output every few minutes, or assumes the job is
         dead.  Default is False.
@@ -300,7 +307,7 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         R = 2**(int(np.log2(N))//2)
         M = 2**(int(np.log2(mem_limit))) // (4 * bytes_per_complex)
         M = min(M, N)
-        R = max(M, R)
+        R = min(M, R)
         C = N//R
 
         # Make temporary storage space
@@ -313,9 +320,10 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         # This cannot be done *quickly* by slicing because HDF5 doesn't like random
         # access -- or even determinate but long-strided access.  So we have to actually
         # transpose the original dataset into the temp file, and fft from that.
-        if keep_me_posted:
-            print("\t\t\tStep 1: Transposing input data")
-        f_tmp1, y = transpose(x, fn_tmp1, 'temp_y', R2=C, C2=R, chunk_cache_mem_size=mem_limit)
+        if show_progress:
+            print("\t\tStep 1: Transposing input data")
+        f_tmp1, y = transpose(x, fn_tmp1, 'temp_y', R2=C, C2=R, chunk_cache_mem_size=mem_limit,
+                              show_progress=show_progress)
 
         # Steps 2 and 3:
         #   2) Compute DFT of each R-element row individually
@@ -324,24 +332,25 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         # convention is opposite that of numpy and FFTW, and scale the result because Cormen
         # does not scale, but numpy does.  Finally, we allow numpy to broadcast, performing
         # Step 3 easily.  This is then written back to disk by h5py.
-        if keep_me_posted:
-            print("\t\t\tSteps 2 and 3: Computing DFTs and scaling")
+        if show_progress:
+            print("\t\tSteps 2 and 3: Computing DFTs and scaling")
         if inverse_fft:
             for k in range(C):
-                if keep_me_posted:
-                    print("\t\t\t\t{0} of {1}".format(k+1, c))
+                if show_progress and k % max(C//100, 25) == 1:
+                    print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(k*2j*np.pi/N)) * np.fft.ifft(y[k])
         else:
             for k in range(C):
-                if keep_me_posted:
-                    print("\t\t\t\t{0} of {1}".format(k+1, c))
+                if show_progress and k % max(C//100, 25) == 1:
+                    print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(-k*2j*np.pi/N)) * np.fft.fft(y[k])
 
         # Step 4:
         #   4) Transpose back to RxC shape
-        if keep_me_posted:
-            print("\t\t\tStep 4: Transpose 2")
-        f_tmp2, z = transpose(y, fn_tmp2, 'temp_z', R2=R, C2=C, chunk_cache_mem_size=mem_limit)
+        if show_progress:
+            print("\t\tStep 4: Transpose 2")
+        f_tmp2, z = transpose(y, fn_tmp2, 'temp_z', R2=R, C2=C, chunk_cache_mem_size=mem_limit,
+                              show_progress=show_progress)
         context_managers.enter_context(contextlib.closing(f_tmp2))
 
         # Delete `y` and its temp file to save on disk space
@@ -355,38 +364,42 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
         # to avoid the python loop overhead.  To achieve this, we need to select `M` data
         # points at a time, reshape into the appropriate 2-D array, and have numpy do all
         # those DFTs at once.  Once that is done, we reshape back to a vector.
-        if keep_me_posted:
-            print("\t\t\tStep 5: Transpose 2")
+        if show_progress:
+            print("\t\tStep 5: Computing DFTs")
         if inverse_fft:
             for k in range(0, R, M//C):
-                if keep_me_posted:
-                    print("\t\t\t\t{0} of {1}".format(k+M//C, R))
+                if show_progress:
+                    print("\t\t\t{0} of {1}".format(k, R))
                 z[k:k+M//C] = np.fft.ifft(z[k:k+M//C])
         else:
             for k in range(0, R, M//C):
-                if keep_me_posted:
-                    print("\t\t\t\t{0} of {1}".format(k+M//C, R))
+                if show_progress:
+                    print("\t\t\t{0} of {1}".format(k, R))
                 z[k:k+M//C] = np.fft.fft(z[k:k+M//C])
 
         # Step 6:
         #   6) Transpose back to CxR and flatten
-        if keep_me_posted:
-            print("\t\t\tStep 6: Transpose 3")
+        if show_progress:
+            print("\t\tStep 6: Transpose 3")
+        i = 0
         for r in range(0, R, sqrt_n_c_e):
             for c in range(0, C, sqrt_n_c_e):
-                if keep_me_posted:
-                    print("\t\t\t\t({0}, {1}) of ({2}, {3})".format(r+sqrt_n_c_e, c+sqrt_n_c_e, R, C))
+                if show_progress and i % max(N//1000, 25) == 1:
+                    print("\t\t\t({0}, {1}) of ({2}, {3})".format(r+sqrt_n_c_e, c+sqrt_n_c_e, R, C))
                 shape = (min(C, c+sqrt_n_c_e)-c, min(R, r+sqrt_n_c_e)-r)
                 stripe = z[r:r+shape[1], c:c+shape[0]]
                 for c2 in range(c, c+shape[0]):
                     X[c2*R+r:c2*R+r+shape[1]] = stripe[:, c2-c].T
+                i += 1
 
 
-def ifft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
-    _general_fft(infile, ingroup, outfile, outgroup, overwrite, mem_limit, inverse_fft=True)
+def ifft(*args, **kwargs):
+    kwargs['inverse_fft'] = True
+    _general_fft(*args, **kwargs)
 ifft.__doc__ = "Perform inverse FFT for very large dataset stored in HDF5 file" + _general_fft.__doc__
 
 
-def fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_limit=1024**3):
-    _general_fft(infile, ingroup, outfile, outgroup, overwrite, mem_limit, inverse_fft=False)
+def fft(*args, **kwargs):
+    kwargs['inverse_fft'] = False
+    _general_fft(*args, **kwargs)
 fft.__doc__ = "Perform FFT for very large dataset stored in HDF5 file" + _general_fft.__doc__

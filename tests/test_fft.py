@@ -9,13 +9,15 @@ oneGB_complex = 64 * 1024**2
 oneMB_complex = 64 * 1024
 
 
-@pytest.mark.skipif(True, reason="I'm lazy")
-def test_big_transpose():
+@pytest.mark.parametrize("N", [
+    oneMB_complex * 2,
+    oneGB_complex * 2,
+])
+def test_big_transpose(N):
     print()
     with out_of_core_fft._TemporaryDirectory() as temp_dir:
         # Write a test file of 1-d data to be reinterpreted as 2-d and transposed
         np.random.seed(1234)
-        N = oneGB_complex * 2
         N_creation = min(16*1024**2, N)
         print("\tCreating file with test data, N={0}".format(N))
         with h5py.File(os.path.join(temp_dir, 'test_in.h5'), 'w') as f:
@@ -30,7 +32,8 @@ def test_big_transpose():
         with h5py.File(os.path.join(temp_dir, 'test_in.h5'), 'r') as f:
             x = f['x']
             R2, C2 = N//1024, 1024
-            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose.h5'), 'x', R2=R2, C2=C2)
+            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose.h5'), 'x', R2=R2, C2=C2,
+                                              show_progress=True)
             f2.close()
         print("\t\tFinished performing first transpose")
 
@@ -38,7 +41,8 @@ def test_big_transpose():
         print("\tPerforming second transpose")
         with h5py.File(os.path.join(temp_dir, 'test_transpose.h5'), 'r') as f:
             x = f['x']
-            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose2.h5'), 'x')
+            f2, d = out_of_core_fft.transpose(x, os.path.join(temp_dir, 'test_transpose2.h5'), 'x',
+                                              show_progress=True)
             try:
                 assert np.all([np.array_equal(x[c2a:c2b, r2a:r2b].T, d[r2a:r2b, c2a:c2b])
                                for r2a in range(0, R2, min(R2, C2)) for r2b in [min(R2, r2a+min(R2, C2))]
@@ -88,7 +92,11 @@ def test_small_transpose():
         print("\t\tFinished performing second transpose")
 
 
-def test_small_ifft():
+@pytest.mark.parametrize("myfunc, npfunc", [
+    (out_of_core_fft.ifft, np.fft.ifft),
+    (out_of_core_fft.fft, np.fft.fft),
+])
+def test_small_dft(myfunc, npfunc):
     print()
     with out_of_core_fft._TemporaryDirectory() as temp_dir:
         # Write a test file
@@ -103,35 +111,12 @@ def test_small_ifft():
 
         # FFT it
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.ifft(fname_in, 'X', fname_out, 'x', mem_limit=1024**2)
+        myfunc(fname_in, 'X', fname_out, 'x', mem_limit=1024**2)
         print("\t\tFinished performing out-of-core FFT")
 
         # Compare to in-core FFT
         with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(np.fft.ifft(f_in['X']), f_out['x'])
-
-
-def test_small_fft():
-    print()
-    with out_of_core_fft._TemporaryDirectory() as temp_dir:
-        # Write a test file
-        np.random.seed(1234)
-        N = oneMB_complex * 4
-        fname_in = os.path.join(temp_dir, 'test_in.h5')
-        fname_out = os.path.join(temp_dir, 'test_out.h5')
-        print("\tCreating file with test data, N={0}".format(N))
-        with h5py.File(fname_in, 'w') as f:
-            f.create_dataset('x', data=(np.random.random(N) + 1j*np.random.random(N)))
-        print("\t\tFinished creating file with test data")
-
-        # FFT it
-        print("\tPerforming out-of-core FFT")
-        out_of_core_fft.fft(fname_in, 'x', fname_out, 'X', mem_limit=1024**2)
-        print("\t\tFinished performing out-of-core FFT")
-
-        # Compare to in-core FFT
-        with h5py.File(fname_in, 'r') as f_in, h5py.File(fname_out, 'r') as f_out:
-            assert np.allclose(np.fft.fft(f_in['x']), f_out['X'])
+            assert np.allclose(npfunc(f_in['X']), f_out['x'])
 
 
 def test_big_roundtrip_fft():
@@ -155,12 +140,12 @@ def test_big_roundtrip_fft():
 
         # Now FFT it to file
         print("\tPerforming out-of-core FFT")
-        out_of_core_fft.fft(fname_x, 'x', fname_X, 'X')
+        out_of_core_fft.fft(fname_x, 'x', fname_X, 'X', show_progress=True)
         print("\t\tFinished performing out-of-core FFT")
 
         # Now inverse FFT it to file
         print("\tPerforming out-of-core inverse FFT")
-        out_of_core_fft.ifft(fname_X, 'X', fname_xx, 'xx')
+        out_of_core_fft.ifft(fname_X, 'X', fname_xx, 'xx', show_progress=True)
         print("\t\tFinished performing out-of-core inverse FFT")
 
         # Check for equality
