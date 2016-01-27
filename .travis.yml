@@ -21,7 +21,7 @@ install:
   - conda update -q conda
   - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION numpy h5py pytest
   - source activate test-environment
-  - conda install -c moble h5py_cache
+  - pip install h5py_cache
   - python setup.py install
 
 script:
