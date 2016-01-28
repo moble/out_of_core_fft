@@ -337,12 +337,12 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
             print("\t\tSteps 2 and 3: Computing DFTs and scaling")
         if inverse_fft:
             for k in range(C):
-                if show_progress and k % max(C//50, 25) == 1:
+                if show_progress and k % max(C//20, 20) == 1:
                     print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(k*2j*np.pi/N)) * np.fft.ifft(y[k])
         else:
             for k in range(C):
-                if show_progress and k % max(C//50, 25) == 1:
+                if show_progress and k % max(C//20, 20) == 1:
                     print("\t\t\t{0} of {1}".format(k, C))
                 y[k] = np.exp(np.arange(R)*(-k*2j*np.pi/N)) * np.fft.fft(y[k])
 

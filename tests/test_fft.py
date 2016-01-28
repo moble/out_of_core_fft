@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import os
 import os.path
 import pytest
 import numpy as np
@@ -88,7 +89,7 @@ def test_roundtrip_fft():
 
         # Write a test file of 1-d data
         np.random.seed(1234)
-        N = oneGB_complex // 2
+        N = oneGB_complex // 2 if ('TRAVIS' in os.environ) or ('CI' in os.environ) else oneGB_complex * 4
         mem_limit = N  # Note that the units of mem_limit and N are different, but this ensures out-of-core
         N_creation = min(16*1024**2, N)
         print("\tCreating file with test data, N={0}".format(N))
