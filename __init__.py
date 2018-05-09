@@ -299,7 +299,7 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
             x = f_in[ingroup]
             if outgroup in f_out:
                 del f_out[outgroup]
-            X = f_out.create_dataset(outgroup, shape=x.shape, dtype=x.dtype, chunks=(sqrt_n_c_e,))
+            X = f_out.create_dataset(outgroup, shape=x.shape, dtype=x.dtype, chunks=(min(sqrt_n_c_e, x.shape[0]),))
 
         # Determine appropriate size and shape
         N = x.size
