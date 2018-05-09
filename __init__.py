@@ -290,7 +290,7 @@ def _general_fft(infile, ingroup, outfile='', outgroup='', overwrite=False, mem_
             f_out = context_managers.enter_context(h5py.File(outfile, 'w'))
         if overwrite:
             x = f_in[ingroup]
-            if not issubclass(x.dtype, numbers.Complex):
+            if not issubclass(x.dtype.type, numbers.Complex):
                 raise ValueError("Flag `overwrite` is True, but input dtype={0} is not complex".format(x.dtype))
             X = x
         else:
