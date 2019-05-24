@@ -1,4 +1,4 @@
-# out_of_core_fft <a href="https://travis-ci.org/moble/out_of_core_fft"><img align="right" hspace="3" alt="Status of automatic build and test suite" src="https://travis-ci.org/moble/out_of_core_fft.svg?branch=master"></a> <a href="https://github.com/moble/out_of_core_fft/blob/master/LICENSE"><img align="right" hspace="3" alt="Code distributed under the open-source MIT license" src="http://moble.github.io/spherical_functions/images/MITLicenseBadge.svg"></a>
+# out_of_core_fft <a href="https://travis-ci.org/moble/out_of_core_fft"><img align="right" hspace="3" alt="Status of automatic build and test suite" src="https://travis-ci.org/moble/out_of_core_fft.svg?branch=master"></a> <a href="https://github.com/moble/out_of_core_fft/blob/master/LICENSE"><img align="right" hspace="3" alt="MIT license" src="https://img.shields.io/github/license/moble/out_of_core_fft.svg"></a>
 
 Fourier transforms are highly nonlocal, which can cause problems when dealing with very large data sets.  In particular,
 standard algorithms cannot work with data sets too large to fit into memory.  On the other hand, the classic
